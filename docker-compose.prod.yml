@@ -77,6 +77,8 @@ services:
       ESPOCRM_ADMIN_USERNAME: ${ESPO_ADMIN_USERNAME:-admin}
       ESPOCRM_ADMIN_PASSWORD: ${ESPO_ADMIN_PASSWORD:-admin123456}
       ESPOCRM_SITE_URL: https://crm.167.71.44.167.nip.io
+    ports:
+      - "8081:80"   # Exposed to host; nginx proxies localhost:8081
     volumes:
       - espocrm_data:/var/www/html
     networks:
