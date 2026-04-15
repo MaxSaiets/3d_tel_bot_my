@@ -29,6 +29,12 @@ class CrmService:
         if request_payload and request_payload.nova_poshta:
             extra_nova_poshta = request_payload.nova_poshta.model_dump(exclude_none=True)
 
+        # Use items from request_payload to avoid lazy-loading the ORM relationship
+        if request_payload:
+            items = [{"sku": i.sku, "qty": i.qty, "price": float(i.price)} for i in request_payload.items]
+        else:
+            items = [{"sku": i.sku, "qty": i.qty, "price": float(i.price)} for i in order.items]
+
         return {
             "idempotency_key": str(order.order_uuid),
             "order": {
@@ -39,7 +45,7 @@ class CrmService:
                     "phone": order.customer_phone,
                     "delivery_info": order.delivery_info,
                 },
-                "items": [{"sku": item.sku, "qty": item.qty, "price": float(item.price)} for item in order.items],
+                "items": items,
                 "total_amount": float(order.total_amount),
                 "created_at": order.created_at.isoformat(),
             },
