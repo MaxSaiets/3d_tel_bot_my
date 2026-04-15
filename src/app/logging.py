@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from pythonjsonlogger.json import JsonFormatter
+from pythonjsonlogger.jsonlogger import JsonFormatter  # v2.x API
 
 
 def configure_logging(level: str = "INFO") -> None:
