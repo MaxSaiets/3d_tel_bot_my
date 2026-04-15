@@ -1,14 +1,18 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from aiogram import Bot
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.session import get_db_session
+from app.db.session import SessionLocal, get_db_session
+from app.repositories.chat import ChatRepository
+from app.repositories.users import UserRepository
 from app.schemas.order import OrderCreateIn, OrderCreateOut
 from app.schemas.telegram import HealthResponse, ReadyResponse
 from app.services.crm_service import dispatch_event_in_background
@@ -137,3 +141,107 @@ async def search_nova_poshta_warehouses(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"items": warehouses}
+
+
+# ── Chat ────────────────────────────────────────────────────────────────────
+
+
+class ChatMessageIn(BaseModel):
+    telegram_user_id: int = Field(ge=1)
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class ChatMessageOut(BaseModel):
+    id: int
+    content: str
+    direction: str  # 'user' | 'admin'
+    created_at: str
+
+
+@router.post("/api/chat", response_model=ChatMessageOut)
+async def send_chat_message(
+    request: Request,
+    payload: ChatMessageIn,
+    session: AsyncSession = Depends(get_db_session),
+) -> ChatMessageOut:
+    """User sends a support message from the WebApp."""
+    settings = get_settings()
+    user_repo = UserRepository(session)
+    chat_repo = ChatRepository(session)
+
+    user = await user_repo.get_by_telegram_user_id(payload.telegram_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found. Open bot first.")
+
+    msg = await chat_repo.save_message(user.id, payload.content, "user")
+    await session.commit()
+
+    # Forward to admin group
+    bot: Bot | None = getattr(request.app.state, "bot", None)
+    if bot:
+        try:
+            username = f"@{user.username}" if user.username else "—"
+            name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "—"
+            await bot.send_message(
+                chat_id=settings.admin_group_id,
+                text=(
+                    f"💬 <b>Чат-повідомлення з магазину</b>\n"
+                    f"👤 {name} ({username})\n"
+                    f"🆔 <code>{payload.telegram_user_id}</code>\n\n"
+                    f"📝 {payload.content}\n\n"
+                    f"<i>Відповідайте через бота /reply_{payload.telegram_user_id}</i>"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to forward chat msg to admin", extra={"error": str(exc)})
+
+    return ChatMessageOut(
+        id=msg.id,
+        content=msg.content,
+        direction=msg.direction,
+        created_at=msg.created_at.isoformat(),
+    )
+
+
+@router.get("/api/chat", response_model=list[ChatMessageOut])
+async def get_chat_history(
+    telegram_user_id: int = Query(ge=1),
+    since: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ChatMessageOut]:
+    """Get chat history (or only new messages if 'since' timestamp provided)."""
+    user_repo = UserRepository(session)
+    chat_repo = ChatRepository(session)
+
+    user = await user_repo.get_by_telegram_user_id(telegram_user_id)
+    if not user:
+        return []
+
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            since_dt = datetime.fromtimestamp(0, tz=timezone.utc)
+        messages = await chat_repo.get_since(user.id, since_dt)
+    else:
+        messages = await chat_repo.get_history(user.id)
+
+    return [
+        ChatMessageOut(id=m.id, content=m.content, direction=m.direction, created_at=m.created_at.isoformat())
+        for m in messages
+    ]
+
+
+async def save_admin_chat_reply(telegram_user_id: int, content: str) -> None:
+    """Called from admin handler when admin sends a Telegram reply — stores it for WebApp display."""
+    try:
+        async with SessionLocal() as session:
+            user_repo = UserRepository(session)
+            chat_repo = ChatRepository(session)
+            user = await user_repo.get_by_telegram_user_id(telegram_user_id)
+            if user:
+                await chat_repo.save_message(user.id, content, "admin")
+                await session.commit()
+    except Exception as exc:
+        logger.warning("Failed to store admin chat reply", extra={"error": str(exc)})

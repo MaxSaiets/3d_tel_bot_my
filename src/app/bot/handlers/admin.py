@@ -1,8 +1,10 @@
+import asyncio
 import logging
 
 from aiogram import Router
 from aiogram.types import Message
 
+from app.api.routes import save_admin_chat_reply
 from app.config import get_settings
 from app.db.session import SessionLocal
 from app.repositories.users import UserRepository
@@ -31,8 +33,13 @@ async def route_admin_reply(message: Message) -> None:
         if user is None:
             return
 
+        # Send reply to user via bot (appears as bot message)
         await message.bot.copy_message(
             chat_id=user.telegram_user_id,
             from_chat_id=message.chat.id,
             message_id=message.message_id,
         )
+
+        # Also store reply in chat_messages so WebApp can display it
+        content = message.text or message.caption or "[медіа]"
+        asyncio.create_task(save_admin_chat_reply(user.telegram_user_id, content))
