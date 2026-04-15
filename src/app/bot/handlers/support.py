@@ -65,10 +65,21 @@ async def forward_user_to_admin(message: Message) -> None:
         if not user:
             return
 
-        forwarded = await message.bot.forward_message(
+        # Send header with user info
+        username = f"@{message.from_user.username}" if message.from_user.username else "—"
+        name = message.from_user.full_name or "—"
+        header = await message.bot.send_message(
+            chat_id=settings.admin_group_id,
+            text=f"💬 <b>Підтримка</b>\n👤 {name} ({username})\n🆔 <code>{message.from_user.id}</code>",
+            parse_mode="HTML",
+        )
+
+        # Copy the actual message content (works for text, photos, voice, etc.)
+        forwarded = await message.bot.copy_message(
             chat_id=settings.admin_group_id,
             from_chat_id=message.chat.id,
             message_id=message.message_id,
+            reply_to_message_id=header.message_id,
         )
         await support_service.save_link(
             user_id=user.id,
