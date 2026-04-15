@@ -1,0 +1,57 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+pip-log.txt
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Node / WebApp
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.override.yml
+
+# Certs / secrets
+deploy/nginx/certs/*.pem
+deploy/nginx/certs/*.crt
+deploy/nginx/certs/*.key
+
+# Alembic - keep versions, ignore generated
+alembic/versions/__pycache__/
+
+# Logs
+*.log
+logs/

@@ -1,0 +1,7 @@
+[Unit]
+Description=Telegram Shop stack health recovery
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/telegram-shop
+ExecStart=/bin/bash /opt/telegram-shop/deploy/scripts/health_recover.sh

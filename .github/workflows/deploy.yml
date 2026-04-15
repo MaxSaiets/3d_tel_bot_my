@@ -1,0 +1,38 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []        # запускається незалежно від ci.yml, але тільки після успіху lint (see below)
+
+    # Деплоїмо тільки якщо CI пройшов
+    # Якщо хочете sequential: замість on:push зробіть workflow_run trigger
+    steps:
+      - uses: actions/checkout@v4
+
+      # Копіюємо новий код на VPS через rsync по SSH
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd /opt/telegram-shop
+
+            # Підтягуємо зміни
+            git pull origin main
+
+            # Rebuild і restart (без downtime для postgres)
+            docker compose -f docker-compose.full.yml up -d --build --no-deps app
+
+            # Застосовуємо міграції якщо є нові
+            docker compose -f docker-compose.full.yml exec -T app alembic upgrade head
+
+            echo "Deploy done: $(date)"

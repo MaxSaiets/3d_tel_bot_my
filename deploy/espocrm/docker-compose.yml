@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  espocrm-db:
+    image: mariadb:11
+    container_name: espocrm-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ESPO_DB_ROOT_PASSWORD:-espocrm_root}
+      MARIADB_DATABASE: ${ESPO_DB_NAME:-espocrm}
+      MARIADB_USER: ${ESPO_DB_USER:-espocrm}
+      MARIADB_PASSWORD: ${ESPO_DB_PASSWORD:-espocrm_pass}
+    volumes:
+      - espocrm_db_data:/var/lib/mysql
+
+  espocrm:
+    image: espocrm/espocrm:latest
+    container_name: espocrm-app
+    restart: unless-stopped
+    depends_on:
+      - espocrm-db
+    environment:
+      ESPOCRM_DATABASE_HOST: espocrm-db
+      ESPOCRM_DATABASE_NAME: ${ESPO_DB_NAME:-espocrm}
+      ESPOCRM_DATABASE_USER: ${ESPO_DB_USER:-espocrm}
+      ESPOCRM_DATABASE_PASSWORD: ${ESPO_DB_PASSWORD:-espocrm_pass}
+      ESPOCRM_ADMIN_USERNAME: ${ESPO_ADMIN_USERNAME:-admin}
+      ESPOCRM_ADMIN_PASSWORD: ${ESPO_ADMIN_PASSWORD:-admin123456}
+      ESPOCRM_SITE_URL: ${ESPOCRM_SITE_URL:-https://crm.example.com}
+    ports:
+      - "8081:80"
+    volumes:
+      - espocrm_data:/var/www/html
+
+volumes:
+  espocrm_db_data:
+  espocrm_data:

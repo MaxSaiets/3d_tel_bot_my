@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Telegram Shop health recovery every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=telegram-shop-health.service
+
+[Install]
+WantedBy=timers.target
