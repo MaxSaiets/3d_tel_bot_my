@@ -1,6 +1,8 @@
 import asyncio
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from aiogram import Bot
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from app.services.integrations.nova_poshta import NovaPoshtaClient
 from app.services.order_service import OrderService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -28,11 +31,25 @@ async def ready(session: AsyncSession = Depends(get_db_session)) -> ReadyRespons
 
 @router.post("/api/orders", response_model=OrderCreateOut)
 async def create_order(
-    payload: OrderCreateIn, session: AsyncSession = Depends(get_db_session)
+    request: Request, payload: OrderCreateIn, session: AsyncSession = Depends(get_db_session)
 ) -> OrderCreateOut:
     service = OrderService(session)
     order_uuid, event_id = await service.create_order(payload)
     asyncio.create_task(dispatch_event_in_background(event_id))
+
+    # Send confirmation message to the user via bot
+    bot: Bot | None = getattr(request.app.state, "bot", None)
+    if bot:
+        short_uuid = order_uuid[:8]
+        try:
+            await bot.send_message(
+                chat_id=payload.telegram_user_id,
+                text=f"✅ Замовлення <b>#{short_uuid}</b> прийнято!\n\nМи зв'яжемось з вами найближчим часом для підтвердження.",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send order confirmation to user", extra={"order_id": order_uuid, "error": str(exc)})
+
     return OrderCreateOut(order_uuid=order_uuid, status="accepted")
 
 
