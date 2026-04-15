@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.filters import CommandStart, CommandObject
+from aiogram.filters import CommandStart, CommandObject, Command
 from aiogram.types import Message
 
 from app.bot.keyboards import main_menu_keyboard
@@ -10,7 +10,13 @@ from app.services.attribution_service import AttributionService
 router = Router(name="start")
 
 
-@router.message(CommandStart(deep_link=True))
+@router.message(Command("id"))
+async def get_chat_id(message: Message) -> None:
+    """Shows current chat ID — useful for setting ADMIN_GROUP_ID."""
+    await message.answer(f"Chat ID: `{message.chat.id}`", parse_mode="Markdown")
+
+
+@router.message(CommandStart(deep_link=True), F.chat.type == "private")
 async def start_with_deeplink(message: Message, command: CommandObject) -> None:
     if message.from_user is None:
         return
@@ -36,7 +42,7 @@ async def start_with_deeplink(message: Message, command: CommandObject) -> None:
     )
 
 
-@router.message(CommandStart())
+@router.message(CommandStart(), F.chat.type == "private")
 async def start_plain(message: Message) -> None:
     if message.from_user is None:
         return
