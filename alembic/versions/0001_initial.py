@@ -17,13 +17,29 @@ depends_on = None
 
 
 def upgrade() -> None:
-    order_status = sa.Enum("pending", "submitted", "failed", name="orderstatus")
-    crm_status = sa.Enum("pending", "sent", "failed", name="crmeventstatus")
-    support_status = sa.Enum("active", "closed", name="supportsessionstatus")
+    # Use DO block to safely create enum types (idempotent on restart)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE orderstatus AS ENUM ('pending', 'submitted', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE crmeventstatus AS ENUM ('pending', 'sent', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE supportsessionstatus AS ENUM ('active', 'closed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
 
-    order_status.create(op.get_bind(), checkfirst=True)
-    crm_status.create(op.get_bind(), checkfirst=True)
-    support_status.create(op.get_bind(), checkfirst=True)
+    order_status = sa.Enum("pending", "submitted", "failed", name="orderstatus", create_type=False)
+    crm_status = sa.Enum("pending", "sent", "failed", name="crmeventstatus", create_type=False)
+    support_status = sa.Enum("active", "closed", name="supportsessionstatus", create_type=False)
 
     op.create_table(
         "users",
