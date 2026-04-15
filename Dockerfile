@@ -10,6 +10,7 @@ COPY entrypoint.sh /app/entrypoint.sh
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir . \
+    && sed -i 's/\r//' /app/entrypoint.sh \
     && chmod +x /app/entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
