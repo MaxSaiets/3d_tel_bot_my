@@ -406,7 +406,7 @@ export default function App() {
 
         {/* ── Nova Poshta ── */}
         {dlv.method === 'nova_poshta' && (
-          <div className="card">
+          <div className="card" style={{ position: 'relative', zIndex: 50 }}>
             <div className="form-inner">
               <div className="f-row">
                 <label className="f-lbl">Місто</label>
