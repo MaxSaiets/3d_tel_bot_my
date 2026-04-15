@@ -30,7 +30,7 @@ async def handle_webapp_data(message: Message) -> None:
             telegram_username=message.from_user.username,
         )
     except (ValueError, KeyError, ValidationError):
-        await message.answer("Order payload is invalid. Please submit again from Web App.")
+        await message.answer("❌ Помилка даних замовлення. Спробуйте ще раз через магазин.")
         return
 
     async with SessionLocal() as session:
@@ -38,4 +38,7 @@ async def handle_webapp_data(message: Message) -> None:
         order_uuid, event_id = await service.create_order(payload)
         asyncio.create_task(dispatch_event_in_background(event_id))
 
-    await message.answer(f"Order received. ID: `{order_uuid}`", parse_mode="Markdown")
+    await message.answer(
+        f"✅ Замовлення <b>#{order_uuid[:8]}</b> прийнято!\n\nОчікуйте підтвердження.",
+        parse_mode="HTML",
+    )

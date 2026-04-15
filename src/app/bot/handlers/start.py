@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.filters import CommandStart, CommandObject, Command
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import Message
 
 from app.bot.keyboards import main_menu_keyboard
@@ -12,7 +12,7 @@ router = Router(name="start")
 
 @router.message(Command("id"))
 async def get_chat_id(message: Message) -> None:
-    """Shows current chat ID — useful for setting ADMIN_GROUP_ID."""
+    """Показує поточний Chat ID — для налаштування ADMIN_GROUP_ID."""
     await message.answer(f"Chat ID: `{message.chat.id}`", parse_mode="Markdown")
 
 
@@ -31,14 +31,16 @@ async def start_with_deeplink(message: Message, command: CommandObject) -> None:
             first_name=message.from_user.first_name,
             last_name=message.from_user.last_name,
         )
-        source = await service.save_start_source(user.id, command.args)
+        await service.save_start_source(user.id, command.args)
         await session.commit()
 
-    source_text = f"Source tracked: `{source}`." if source else "Source code was not valid."
+    first_name = message.from_user.first_name or "друже"
     await message.answer(
-        f"Welcome! {source_text}\nUse the menu to open store or contact support.",
+        f"👋 Вітаємо, <b>{first_name}</b>!\n\n"
+        "🛒 Натисніть <b>«🛒 Відкрити магазин»</b> — оберіть товари та оформіть замовлення.\n\n"
+        "💬 Виникли питання? Натисніть <b>«💬 Підтримка»</b> і ми відповімо.",
         reply_markup=main_menu_keyboard(),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -57,10 +59,17 @@ async def start_plain(message: Message) -> None:
         )
         await session.commit()
 
-    await message.answer("Welcome! Open the store from the button below.", reply_markup=main_menu_keyboard())
+    first_name = message.from_user.first_name or "друже"
+    await message.answer(
+        f"👋 Вітаємо, <b>{first_name}</b>!\n\n"
+        "🛒 Натисніть <b>«🛒 Відкрити магазин»</b> — оберіть товари та оформіть замовлення.\n\n"
+        "💬 Виникли питання? Натисніть <b>«💬 Підтримка»</b> і ми відповімо.",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(F.text == "/menu")
 async def menu_shortcut(message: Message) -> None:
-    await message.answer("Main menu is ready.", reply_markup=main_menu_keyboard())
+    await message.answer("Головне меню:", reply_markup=main_menu_keyboard())
 
