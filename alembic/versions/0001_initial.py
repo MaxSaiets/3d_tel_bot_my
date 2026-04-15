@@ -21,9 +21,9 @@ def upgrade() -> None:
     crm_status = sa.Enum("pending", "sent", "failed", name="crmeventstatus")
     support_status = sa.Enum("active", "closed", name="supportsessionstatus")
 
-    order_status.create(op.get_bind())
-    crm_status.create(op.get_bind())
-    support_status.create(op.get_bind())
+    order_status.create(op.get_bind(), checkfirst=True)
+    crm_status.create(op.get_bind(), checkfirst=True)
+    support_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "users",
