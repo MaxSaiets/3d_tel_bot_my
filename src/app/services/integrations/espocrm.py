@@ -39,8 +39,10 @@ class EspoCrmClient:
             if np_data.get("tracking_number"):
                 description_lines.append(f"TTN: {np_data['tracking_number']}")
 
+        # EspoCRM Lead requires firstName/lastName, not name
         body = {
-            "name": f"Order {order['order_uuid']}",
+            "firstName": "Order",
+            "lastName": order["order_uuid"][:8],
             "status": self.settings.espocrm_default_status,
             "description": "\n".join(description_lines),
         }
