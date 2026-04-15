@@ -16,11 +16,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Pure SQL migration — no SQLAlchemy Enum objects to avoid create_type issues with asyncpg
+    # Create enum types idempotently (PostgreSQL has no CREATE TYPE IF NOT EXISTS)
     op.execute("""
-        CREATE TYPE IF NOT EXISTS orderstatus AS ENUM ('pending', 'submitted', 'failed');
-        CREATE TYPE IF NOT EXISTS crmeventstatus AS ENUM ('pending', 'sent', 'failed');
-        CREATE TYPE IF NOT EXISTS supportsessionstatus AS ENUM ('active', 'closed');
+        DO $$ BEGIN CREATE TYPE orderstatus AS ENUM ('pending','submitted','failed');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN CREATE TYPE crmeventstatus AS ENUM ('pending','sent','failed');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN CREATE TYPE supportsessionstatus AS ENUM ('active','closed');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     """)
 
     op.execute("""
