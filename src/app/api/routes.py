@@ -4,11 +4,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.catalog import get_product_name, list_catalog_items
 from app.config import get_settings
 from app.db.session import SessionLocal, get_db_session
 from app.repositories.admin_messages import AdminMessageRepository
@@ -18,8 +20,8 @@ from app.schemas.order import OrderCreateIn, OrderCreateOut
 from app.schemas.telegram import HealthResponse, ReadyResponse
 from app.services.crm_service import dispatch_event_in_background
 from app.services.integrations.nova_poshta import NovaPoshtaClient
+from app.services.integrations.ukr_poshta import UkrPoshtaAddressClient
 from app.services.order_service import OrderService
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,17 +44,17 @@ def _order_admin_keyboard(order_uuid: str) -> InlineKeyboardMarkup:
         ]
     )
 
-# Human-readable product names for admin notifications
-_PRODUCT_NAMES: dict[str, str] = {
-    "signal_fishing": "🎣 Сигналізатор клювання",
-    "hoodie_black":   "🧥 Худі Black",
-    "cap_white":      "🧢 Кепка White",
-    "sticker_pack":   "🎨 Набір стікерів",
-}
-
-
-def _product_name(sku: str) -> str:
-    return _PRODUCT_NAMES.get(sku, sku)
+def _format_delivery_summary(payload: OrderCreateIn) -> str:
+    if payload.meta.delivery_method == "nova_poshta" and payload.nova_poshta:
+        return f"🚚 Нова Пошта\n📍 {payload.customer.delivery_info}"
+    if payload.meta.delivery_method == "ukrposhta" and payload.ukr_poshta:
+        return (
+            "📦 Укрпошта\n"
+            f"📍 {payload.ukr_poshta.postcode}, {payload.ukr_poshta.city}\n"
+            f"🏤 {payload.ukr_poshta.postoffice_name}\n"
+            f"{payload.ukr_poshta.postoffice_address}"
+        )
+    return "🏪 Самовивіз\nЛише Хмельницький, від 5 шт., за попередньою домовленістю"
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -64,6 +66,18 @@ async def health() -> HealthResponse:
 async def ready(session: AsyncSession = Depends(get_db_session)) -> ReadyResponse:
     await session.execute(text("SELECT 1"))
     return ReadyResponse()
+
+
+@router.get("/api/catalog")
+async def get_catalog() -> dict:
+    return {
+        "items": list_catalog_items(),
+        "pickup_rules": {
+            "city": "Хмельницький",
+            "min_qty": 5,
+            "note": "Самовивіз доступний лише по місту Хмельницький, від 5 штук і за домовленістю.",
+        },
+    }
 
 
 @router.post("/api/orders", response_model=OrderCreateOut)
@@ -99,15 +113,9 @@ async def create_order(
         try:
             username_txt = f"@{payload.telegram_username}" if payload.telegram_username else "—"
             items_txt = "\n".join(
-                f"  • {_product_name(i.sku)}  ×{i.qty}  = {int(i.qty * i.price)} ₴"
+                f"  • {get_product_name(i.sku)}  ×{i.qty}  = {int(i.qty * i.price)} ₴"
                 for i in payload.items
             )
-            dlv_method_map = {
-                "nova_poshta": "🚚 Нова Пошта",
-                "ukrposhta":   "📦 Укрпошта",
-                "pickup":      "🏪 Самовивіз",
-            }
-            dlv_label = dlv_method_map.get(payload.meta.delivery_method, payload.meta.delivery_method)
 
             admin_text = (
                 f"🛍 <b>НОВЕ ЗАМОВЛЕННЯ #{short_uuid}</b>\n\n"
@@ -116,8 +124,7 @@ async def create_order(
                 f"🔗 {username_txt}  (<code>{payload.telegram_user_id}</code>)\n\n"
                 f"📦 <b>Товари:</b>\n{items_txt}\n\n"
                 f"💰 <b>Сума: {int(total)} ₴</b>\n\n"
-                f"{dlv_label}\n"
-                f"📍 {payload.customer.delivery_info}"
+                f"{_format_delivery_summary(payload)}"
             )
             admin_msg = await bot.send_message(
                 chat_id=settings.admin_group_id,
@@ -178,6 +185,25 @@ async def search_nova_poshta_warehouses(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"items": warehouses}
+
+
+@router.get("/api/up/postoffices")
+async def search_ukr_poshta_postoffices(
+    postcode: str = Query(min_length=5, max_length=5, pattern=r"^\d{5}$"),
+    query: str | None = Query(default=None, max_length=120),
+) -> dict:
+    settings = get_settings()
+    if not settings.ukr_poshta_enabled:
+        raise HTTPException(status_code=503, detail="Ukrposhta integration is disabled")
+
+    client = UkrPoshtaAddressClient(settings)
+    try:
+        offices = await client.search_postoffices(postcode=postcode, query=query)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Ukrposhta lookup failed: {exc}") from exc
+    return {"items": offices}
 
 
 # ── Chat ────────────────────────────────────────────────────────────────────

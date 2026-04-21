@@ -26,8 +26,14 @@ class CrmService:
 
     def build_payload(self, order: Order, request_payload: OrderCreateIn | None = None) -> dict:
         extra_nova_poshta: dict[str, Any] = {}
+        extra_ukr_poshta: dict[str, Any] = {}
+        extra_pickup: dict[str, Any] = {}
         if request_payload and request_payload.nova_poshta:
             extra_nova_poshta = request_payload.nova_poshta.model_dump(exclude_none=True)
+        if request_payload and request_payload.ukr_poshta:
+            extra_ukr_poshta = request_payload.ukr_poshta.model_dump(exclude_none=True)
+        if request_payload and request_payload.pickup:
+            extra_pickup = request_payload.pickup.model_dump(exclude_none=True)
 
         # Use items from request_payload to avoid lazy-loading the ORM relationship
         if request_payload:
@@ -48,8 +54,11 @@ class CrmService:
                 "items": items,
                 "total_amount": float(order.total_amount),
                 "created_at": order.created_at.isoformat(),
+                "delivery_method": request_payload.meta.delivery_method if request_payload else "nova_poshta",
             },
             "nova_poshta": extra_nova_poshta,
+            "ukr_poshta": extra_ukr_poshta,
+            "pickup": extra_pickup,
         }
 
     async def enqueue_order_event(self, order: Order, request_payload: OrderCreateIn | None = None) -> int:

@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     np_sender_address_ref: str = Field(default="", alias="NP_SENDER_ADDRESS_REF")
     np_sender_city_ref: str = Field(default="", alias="NP_SENDER_CITY_REF")
     np_sender_phone: str = Field(default="", alias="NP_SENDER_PHONE")
+    ukr_poshta_enabled: bool = Field(default=False, alias="UKR_POSHTA_ENABLED")
+    ukr_poshta_api_url: str = Field(
+        default="https://www.ukrposhta.ua/address-classifier-ws", alias="UKR_POSHTA_API_URL"
+    )
+    ukr_poshta_bearer: str = Field(default="", alias="UKR_POSHTA_BEARER")
 
     api_order_rate_limit_per_minute: int = Field(default=30, alias="API_ORDER_RATE_LIMIT_PER_MINUTE")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

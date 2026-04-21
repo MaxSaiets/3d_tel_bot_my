@@ -1,4 +1,11 @@
-# Telegram Shop Stack (Bot + WebApp + EspoCRM + Nova Poshta)
+# Telegram Shop Stack (Bot + WebApp + EspoCRM + Nova Poshta + Ukrposhta)
+
+Поточна версія магазину вже підтримує:
+- каталог із кількома товарами в одному кошику;
+- checkout для `Нова Пошта`, `Укрпошта` і `самовивіз`;
+- правило самовивозу: тільки `Хмельницький`, від `5` штук і за домовленістю;
+- чат підтримки прямо у WebApp;
+- синхронізацію замовлень у Telegram та EspoCRM.
 
 Нижче інструкція саме під ваш запит: окремий venv для локальної розробки, швидкий перенос на сервер і автовідновлення сервісів.
 
@@ -31,6 +38,12 @@ cp .env.example .env
 - `ESPOCRM_BASE_URL`
 - `ESPOCRM_API_KEY`
 - `NOVA_POSHTA_API_KEY` (якщо НП увімкнено)
+
+Якщо вмикаєте інтеграцію Укрпошти для вибору відділень:
+- `UKR_POSHTA_ENABLED=true`
+- `UKR_POSHTA_BEARER=<bearer з договору/кабінету Укрпошти>`
+
+Примітка: address-classifier Укрпошти повертає `401 Unauthorized` без валідного bearer, тому сам лише URL недостатній.
 
 ### EspoCRM
 ```bash

@@ -26,6 +26,9 @@ async def handle_webapp_data(message: Message) -> None:
             customer=raw["customer"],
             items=raw["items"],
             meta=raw["meta"],
+            nova_poshta=raw.get("nova_poshta"),
+            ukr_poshta=raw.get("ukr_poshta"),
+            pickup=raw.get("pickup"),
             telegram_user_id=message.from_user.id,
             telegram_username=message.from_user.username,
         )

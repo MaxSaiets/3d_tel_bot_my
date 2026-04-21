@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 
+from app.catalog import get_product_name
 from app.config import Settings
 
 
@@ -20,14 +21,17 @@ class EspoCrmClient:
         endpoint = f"{self.settings.espocrm_base_url.rstrip('/')}/api/v1/{self.settings.espocrm_order_entity}"
         order = payload["order"]
         customer = order["customer"]
-        items_text = ", ".join([f'{item["sku"]} x{item["qty"]}' for item in order["items"]])
+        items_text = ", ".join([f'{get_product_name(item["sku"])} x{item["qty"]}' for item in order["items"]])
         np_data = payload.get("nova_poshta", {})
+        up_data = payload.get("ukr_poshta", {})
+        pickup_data = payload.get("pickup", {})
 
         description_lines = [
             f"Order UUID: {order['order_uuid']}",
             f"Source: {order.get('source_code') or '-'}",
             f"Customer: {customer['name']}",
             f"Phone: {customer['phone']}",
+            f"Delivery method: {order.get('delivery_method', '-')}",
             f"Delivery: {customer['delivery_info']}",
             f"Items: {items_text}",
             f"Total: {order['total_amount']}",
@@ -38,6 +42,16 @@ class EspoCrmClient:
             )
             if np_data.get("tracking_number"):
                 description_lines.append(f"TTN: {np_data['tracking_number']}")
+        if up_data:
+            description_lines.append(
+                "Ukrposhta: "
+                f"{up_data.get('postcode', '-')}, {up_data.get('city', '-')}, "
+                f"{up_data.get('postoffice_name', '-')}"
+            )
+        if pickup_data:
+            description_lines.append(
+                f"Pickup: {pickup_data.get('city', '-')}, only by prior arrangement"
+            )
 
         # EspoCRM Lead requires firstName/lastName, not name
         body = {
@@ -51,4 +65,3 @@ class EspoCrmClient:
             response = await client.post(endpoint, headers=self._headers, json=body)
             response.raise_for_status()
             return response.json()
-
