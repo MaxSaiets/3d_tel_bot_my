@@ -96,14 +96,15 @@ function Gallery({ images }) {
 
 /* ─── Chat Widget ─── */
 function ChatWidget({ tgUserId }) {
-  const [open,     setOpen]    = useState(false)
-  const [msgs,     setMsgs]    = useState([])
-  const [input,    setInput]   = useState('')
-  const [sending,  setSending] = useState(false)
-  const [hasNew,   setHasNew]  = useState(false)
-  const lastTs = useRef(null)
+  const [open,    setOpen]   = useState(false)
+  const [msgs,    setMsgs]   = useState([])
+  const [input,   setInput]  = useState('')
+  const [sending, setSending] = useState(false)
+  const [hasNew,  setHasNew] = useState(false)
+  const lastTs   = useRef(null)
   const bottomRef = useRef(null)
   const pollRef   = useRef(null)
+  const msgCounter = useRef(-1) // for local system message IDs
 
   /* Initial load */
   useEffect(() => {
@@ -117,10 +118,10 @@ function ChatWidget({ tgUserId }) {
       .catch(() => {})
   }, [tgUserId])
 
-  /* Poll for new messages every 8s */
+  /* Poll every 8s — only when panel is open */
   useEffect(() => {
-    if (!tgUserId) return
-    pollRef.current = setInterval(() => {
+    if (!tgUserId || !open) return
+    const tick = () => {
       const since = lastTs.current || new Date(0).toISOString()
       fetch(`/api/chat?telegram_user_id=${tgUserId}&since=${encodeURIComponent(since)}`)
         .then(r => r.ok ? r.json() : [])
@@ -131,22 +132,52 @@ function ChatWidget({ tgUserId }) {
             const fresh = data.filter(m => !ids.has(m.id))
             if (!fresh.length) return prev
             lastTs.current = fresh[fresh.length - 1].created_at
-            if (fresh.some(m => m.direction === 'admin') && !open) setHasNew(true)
             return [...prev, ...fresh]
           })
         })
         .catch(() => {})
-    }, 8000)
+    }
+    pollRef.current = setInterval(tick, 8000)
     return () => clearInterval(pollRef.current)
   }, [tgUserId, open])
 
-  /* Scroll to bottom when opened or new messages */
+  /* Background poll (slow) — tracks new admin msgs for unread dot */
+  useEffect(() => {
+    if (!tgUserId || open) return
+    const bgPoll = setInterval(() => {
+      const since = lastTs.current || new Date(0).toISOString()
+      fetch(`/api/chat?telegram_user_id=${tgUserId}&since=${encodeURIComponent(since)}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => {
+          const adminMsgs = data.filter(m => m.direction === 'admin')
+          if (adminMsgs.length) {
+            setHasNew(true)
+            lastTs.current = adminMsgs[adminMsgs.length - 1].created_at
+          }
+        })
+        .catch(() => {})
+    }, 20000) // slower when closed
+    return () => clearInterval(bgPoll)
+  }, [tgUserId, open])
+
+  /* Scroll & clear unread when opened */
   useEffect(() => {
     if (open) {
       setHasNew(false)
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 60)
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
     }
   }, [open, msgs.length])
+
+  /* Add a local system message (client-side only, no DB) */
+  function addSystemMsg(text) {
+    const id = `sys_${msgCounter.current--}`
+    setMsgs(prev => [...prev, {
+      id,
+      content: text,
+      direction: 'system',
+      created_at: new Date().toISOString(),
+    }])
+  }
 
   async function sendMsg() {
     if (!input.trim() || sending || !tgUserId) return
@@ -163,9 +194,16 @@ function ChatWidget({ tgUserId }) {
         const msg = await res.json()
         setMsgs(prev => [...prev, msg])
         lastTs.current = msg.created_at
+        // Confirmation system notice
+        addSystemMsg('📨 Повідомлення надіслано. Очікуйте відповіді від адміністратора.')
+      } else {
+        addSystemMsg('⚠️ Не вдалося надіслати. Спробуйте ще раз.')
       }
-    } catch (e) { /* ignore */ }
-    finally { setSending(false) }
+    } catch {
+      addSystemMsg('⚠️ Мережева помилка. Перевірте з\'єднання.')
+    } finally {
+      setSending(false)
+    }
   }
 
   function onKeyDown(e) {
@@ -174,9 +212,12 @@ function ChatWidget({ tgUserId }) {
 
   if (!tgUserId) return null
 
+  const realMsgs = msgs.filter(m => m.direction !== 'system')
+  const isEmpty  = realMsgs.length === 0
+
   return (
     <>
-      <button className="chat-fab" onClick={() => setOpen(true)}>
+      <button className="chat-fab" onClick={() => setOpen(true)} aria-label="Відкрити чат">
         💬
         {hasNew && <span className="unread-dot" />}
       </button>
@@ -184,27 +225,48 @@ function ChatWidget({ tgUserId }) {
       {open && (
         <div className="chat-overlay" onClick={e => e.target === e.currentTarget && setOpen(false)}>
           <div className="chat-panel">
+            {/* Header */}
             <div className="chat-header">
+              <div className="chat-avatar">🎣</div>
               <div className="chat-header-info">
-                <div className="chat-header-title">💬 Підтримка</div>
-                <div className="chat-header-sub">Зазвичай відповідаємо протягом години</div>
+                <div className="chat-header-title">Підтримка магазину</div>
+                <div className="chat-header-sub">Відповідаємо протягом 1 години</div>
               </div>
-              <button className="chat-close" onClick={() => setOpen(false)}>✕</button>
+              <button className="chat-close" onClick={() => setOpen(false)} aria-label="Закрити">✕</button>
             </div>
 
+            {/* Messages */}
             <div className="chat-messages">
-              {msgs.map(m => (
-                <div key={m.id} style={{ display: 'flex', flexDirection: 'column',
-                  alignItems: m.direction === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div className={`msg-bubble ${m.direction}`}>
-                    {m.content}
-                    <span className="msg-time">{fmtTime(m.created_at)}</span>
+              {isEmpty && (
+                <div className="chat-empty">
+                  <div className="chat-empty-icon">💬</div>
+                  <div className="chat-empty-title">Маєте питання?</div>
+                  <div className="chat-empty-text">
+                    Напишіть нам — ми відповімо щодо наявності, доставки або іншого.
                   </div>
                 </div>
-              ))}
+              )}
+
+              {msgs.map(m => {
+                if (m.direction === 'system') {
+                  return (
+                    <div key={m.id} className="msg-system">{m.content}</div>
+                  )
+                }
+                return (
+                  <div key={m.id} className={`msg-row ${m.direction}`}>
+                    {m.direction === 'admin' && <div className="msg-avatar">🎣</div>}
+                    <div className={`msg-bubble ${m.direction}`}>
+                      <span className="msg-text">{m.content}</span>
+                      <span className="msg-time">{fmtTime(m.created_at)}</span>
+                    </div>
+                  </div>
+                )
+              })}
               <div ref={bottomRef} />
             </div>
 
+            {/* Input */}
             <div className="chat-input-row">
               <textarea
                 className="chat-textarea"
@@ -213,9 +275,15 @@ function ChatWidget({ tgUserId }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
+                disabled={sending}
               />
-              <button className="chat-send" onClick={sendMsg} disabled={!input.trim() || sending}>
-                {sending ? '…' : '➤'}
+              <button
+                className="chat-send"
+                onClick={sendMsg}
+                disabled={!input.trim() || sending}
+                aria-label="Надіслати"
+              >
+                {sending ? <span className="send-spin" /> : '➤'}
               </button>
             </div>
           </div>
@@ -225,12 +293,43 @@ function ChatWidget({ tgUserId }) {
   )
 }
 
+/* ─── Parse Telegram user from WebApp context ─── */
+function parseTgUser() {
+  const tg = window.Telegram?.WebApp
+  if (!tg) return null
+
+  // Method 1: initDataUnsafe (already parsed by Telegram SDK)
+  const u = tg.initDataUnsafe?.user
+  if (u?.id) return u
+
+  // Method 2: manually parse initData URL-encoded string
+  // This handles edge cases where initDataUnsafe is empty but initData is set
+  try {
+    const raw = tg.initData || ''
+    if (raw) {
+      const params = new URLSearchParams(raw)
+      const userStr = params.get('user')
+      if (userStr) {
+        const parsed = JSON.parse(decodeURIComponent(userStr))
+        if (parsed?.id) return parsed
+      }
+    }
+  } catch { /* ignore parse errors */ }
+
+  return null
+}
+
 /* ═══════════════════════ Main App ═══════════════════════ */
 export default function App() {
   const tg     = window.Telegram?.WebApp
-  const tgUser = tg?.initDataUnsafe?.user
+  const tgUser = useMemo(() => parseTgUser(), [])
 
-  useEffect(() => { if (tg) { tg.ready(); tg.expand() } }, [])
+  useEffect(() => {
+    if (tg) {
+      tg.ready()
+      tg.expand()
+    }
+  }, [])
 
   /* qty */
   const SKU = 'signal_fishing'
@@ -301,17 +400,39 @@ export default function App() {
   }
 
   /* submit */
-  const [status,  setStatus]  = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [status,      setStatus]      = useState(null)
+  const [loading,     setLoading]     = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
-  async function submit() {
+  /* Build delivery summary for display */
+  function buildDeliveryInfo() {
+    if (dlv.method === 'nova_poshta') {
+      return `🚚 Нова Пошта: ${dlv.np.cityName}, ${dlv.np.warehouseName}`
+    } else if (dlv.method === 'ukrposhta') {
+      return `📦 Укрпошта: ${dlv.up.city}, відд. №${dlv.up.branch}` +
+        (dlv.up.index ? `, індекс ${dlv.up.index}` : '')
+    }
+    return '🏪 Самовивіз (адреса узгоджується)'
+  }
+
+  /* Step 1: Validate and show confirm modal */
+  function handleOrderClick() {
     const fakeCart = qty > 0 ? { [SKU]: qty } : {}
     const err = validate(fakeCart, form, dlv)
     if (err) { setStatus({ ok: false, text: err }); return }
     if (!tgUser?.id) {
-      setStatus({ ok: false, text: 'Відкрийте магазин через кнопку в боті' }); return
+      // Log debug info to help diagnose
+      console.warn('[TG] initData:', tg?.initData?.slice(0, 80))
+      console.warn('[TG] initDataUnsafe:', JSON.stringify(tg?.initDataUnsafe))
+      setStatus({ ok: false, text: '⚠️ Не вдалося визначити ваш Telegram ID.\nЗакрийте та відкрийте магазин знову через кнопку в боті.' })
+      return
     }
+    setStatus(null)
+    setShowConfirm(true)
+  }
 
+  /* Step 2: Actual submission after confirmation */
+  async function confirmAndSubmit() {
     let deliveryInfo, npPayload = null
     if (dlv.method === 'nova_poshta') {
       deliveryInfo = `Нова Пошта: ${dlv.np.cityName}, ${dlv.np.warehouseName}`
@@ -324,7 +445,7 @@ export default function App() {
       deliveryInfo = 'Самовивіз'
     }
 
-    setLoading(true); setStatus(null)
+    setLoading(true); setShowConfirm(false); setStatus(null)
     try {
       const res = await fetch('/api/orders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -332,7 +453,7 @@ export default function App() {
           customer: { name: form.name.trim(), phone: form.phone.trim(), delivery_info: deliveryInfo },
           items: [{ sku: SKU, qty, price: PRICE }],
           meta: { source_code: tg?.initDataUnsafe?.start_param || null,
-            webapp_version: 'v3', delivery_method: dlv.method },
+            webapp_version: 'v4', delivery_method: dlv.method },
           nova_poshta: npPayload,
           telegram_user_id: tgUser.id,
           telegram_username: tgUser.username || null,
@@ -345,7 +466,7 @@ export default function App() {
       const data = await res.json()
       setStatus({ ok: true,
         text: `✅ Замовлення #${data.order_uuid.slice(0, 8)} прийнято!\nОчікуйте повідомлення від бота.` })
-      setTimeout(() => tg?.close(), 2500)
+      setTimeout(() => tg?.close(), 2800)
     } catch (e) {
       setStatus({ ok: false, text: `Мережева помилка: ${e.message}` })
     } finally { setLoading(false) }
@@ -363,6 +484,7 @@ export default function App() {
           <div className="product-badge-row">
             <span className="badge-hit">⭐ ХІТ</span>
             <span className="badge-new">Новий</span>
+            <span className="badge-cod">💰 Оплата після отримання</span>
           </div>
           <div className="product-title-big">Сигналізатор клювання механічний</div>
           <div className="product-price-big">120 ₴</div>
@@ -534,23 +656,88 @@ export default function App() {
                 <span className="sum-ttl">💰 Разом</span>
                 <span className="sum-ttl-v">{total} ₴</span>
               </div>
+              <div className="cod-badge">💳 Оплата після отримання товару</div>
             </div>
           </>
         )}
 
         {/* Status */}
         {status && (
-          <div className={`status ${status.ok ? 's-ok' : 's-err'}`}>{status.text}</div>
+          <div className={`status ${status.ok ? 's-ok' : 's-err'}`} style={{whiteSpace:'pre-line'}}>{status.text}</div>
         )}
       </div>
 
       {/* Chat */}
       <ChatWidget tgUserId={tgUser?.id} />
 
+      {/* ── Confirmation Modal ── */}
+      {showConfirm && (
+        <div className="confirm-overlay" onClick={e => e.target === e.currentTarget && setShowConfirm(false)}>
+          <div className="confirm-panel">
+            <div className="confirm-header">
+              <div className="confirm-title">📋 Підтвердження замовлення</div>
+              <button className="chat-close" onClick={() => setShowConfirm(false)}>✕</button>
+            </div>
+
+            <div className="confirm-body">
+              {/* Items */}
+              <div className="confirm-section">
+                <div className="confirm-section-label">Товари</div>
+                <div className="confirm-row">
+                  <span>🎣 Сигналізатор клювання × {qty}</span>
+                  <span className="confirm-price">{total} ₴</span>
+                </div>
+              </div>
+
+              {/* Delivery */}
+              <div className="confirm-section">
+                <div className="confirm-section-label">Доставка</div>
+                <div className="confirm-row-text">{buildDeliveryInfo()}</div>
+              </div>
+
+              {/* Contact */}
+              <div className="confirm-section">
+                <div className="confirm-section-label">Контакти</div>
+                <div className="confirm-row-text">👤 {form.name.trim() || '—'}</div>
+                <div className="confirm-row-text">📞 {form.phone.trim() || '—'}</div>
+              </div>
+
+              {/* Total */}
+              <div className="confirm-total-row">
+                <span>До сплати</span>
+                <span className="confirm-total-val">{total} ₴</span>
+              </div>
+
+              {/* COD badge */}
+              <div className="confirm-cod">
+                💳 Оплата після отримання товару — жодної передоплати
+              </div>
+            </div>
+
+            <div className="confirm-actions">
+              <button className="confirm-btn-back" onClick={() => setShowConfirm(false)}>
+                ← Редагувати
+              </button>
+              <button className="confirm-btn-ok" onClick={confirmAndSubmit} disabled={loading}>
+                {loading ? '⏳ …' : '✅ Підтвердити'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="footer">
-        <button className="submit-btn" onClick={submit} disabled={loading || qty === 0}>
-          {loading ? '⏳ Відправляємо…' : qty === 0 ? 'Оберіть кількість' : `Замовити · ${total} ₴`}
+        <button
+          className="submit-btn"
+          onClick={handleOrderClick}
+          disabled={loading || qty === 0}
+        >
+          {loading
+            ? '⏳ Відправляємо…'
+            : qty === 0
+              ? 'Оберіть кількість ↑'
+              : `🛒 Замовити · ${total} ₴`}
         </button>
       </div>
     </>

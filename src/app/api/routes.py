@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.session import SessionLocal, get_db_session
+from app.repositories.admin_messages import AdminMessageRepository
 from app.repositories.chat import ChatRepository
 from app.repositories.users import UserRepository
 from app.schemas.order import OrderCreateIn, OrderCreateOut
@@ -18,9 +19,28 @@ from app.schemas.telegram import HealthResponse, ReadyResponse
 from app.services.crm_service import dispatch_event_in_background
 from app.services.integrations.nova_poshta import NovaPoshtaClient
 from app.services.order_service import OrderService
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _order_admin_keyboard(order_uuid: str) -> InlineKeyboardMarkup:
+    """Inline buttons attached to order notification in admin group.
+    Defined here (not imported from app.bot.keyboards) to avoid circular imports.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Підтвердити", callback_data=f"order:confirm:{order_uuid}"),
+                InlineKeyboardButton(text="❌ Скасувати",   callback_data=f"order:cancel:{order_uuid}"),
+            ],
+            [
+                InlineKeyboardButton(text="🚚 Ввести TTN",  callback_data=f"order:ship:{order_uuid}"),
+                InlineKeyboardButton(text="💬 Написати",     callback_data=f"order:write:{order_uuid}"),
+            ],
+        ]
+    )
 
 # Human-readable product names for admin notifications
 _PRODUCT_NAMES: dict[str, str] = {
@@ -73,12 +93,9 @@ async def create_order(
                 parse_mode="HTML",
             )
         except Exception as exc:
-            logger.warning(
-                "Failed to notify customer",
-                extra={"order_id": order_uuid, "error": str(exc)},
-            )
+            logger.warning("Failed to notify customer", extra={"order_id": order_uuid, "error": str(exc)})
 
-        # ── Notify admin group ──
+        # ── Notify admin group with inline action buttons ──
         try:
             username_txt = f"@{payload.telegram_username}" if payload.telegram_username else "—"
             items_txt = "\n".join(
@@ -102,23 +119,43 @@ async def create_order(
                 f"{dlv_label}\n"
                 f"📍 {payload.customer.delivery_info}"
             )
-            await bot.send_message(
+            admin_msg = await bot.send_message(
                 chat_id=settings.admin_group_id,
                 text=admin_text,
+                reply_markup=_order_admin_keyboard(order_uuid),
                 parse_mode="HTML",
             )
-        except Exception as exc:
-            logger.warning(
-                "Failed to notify admin group",
-                extra={"order_id": order_uuid, "error": str(exc)},
+
+            # Map admin message_id → user so admins can reply directly to this message
+            asyncio.create_task(
+                _save_order_admin_link(
+                    telegram_user_id=payload.telegram_user_id,
+                    admin_message_id=admin_msg.message_id,
+                )
             )
+        except Exception as exc:
+            logger.warning("Failed to notify admin group", extra={"order_id": order_uuid, "error": str(exc)})
 
     return OrderCreateOut(order_uuid=order_uuid, status="accepted")
 
 
+async def _save_order_admin_link(telegram_user_id: int, admin_message_id: int) -> None:
+    """Store mapping: admin notification message_id → user_id for reply forwarding."""
+    try:
+        async with SessionLocal() as session:
+            user_repo      = UserRepository(session)
+            admin_msg_repo = AdminMessageRepository(session)
+            user = await user_repo.get_by_telegram_user_id(telegram_user_id)
+            if user:
+                await admin_msg_repo.save(user.id, admin_message_id, "order")
+                await session.commit()
+    except Exception as exc:
+        logger.warning("Failed to save order admin link", extra={"error": str(exc)})
+
+
 @router.get("/api/np/cities")
 async def search_nova_poshta_cities(query: str = Query(min_length=2, max_length=120)) -> dict:
-    """Search Nova Poshta cities. Works whenever NOVA_POSHTA_API_KEY is configured."""
+    """Search Nova Poshta cities."""
     settings = get_settings()
     client = NovaPoshtaClient(settings)
     try:
@@ -133,7 +170,7 @@ async def search_nova_poshta_warehouses(
     city_ref: str = Query(min_length=10, max_length=64),
     query: str | None = Query(default=None, max_length=120),
 ) -> dict:
-    """Search Nova Poshta warehouses for a given city. Works whenever NOVA_POSHTA_API_KEY is configured."""
+    """Search Nova Poshta warehouses for a given city."""
     settings = get_settings()
     client = NovaPoshtaClient(settings)
     try:
@@ -154,7 +191,7 @@ class ChatMessageIn(BaseModel):
 class ChatMessageOut(BaseModel):
     id: int
     content: str
-    direction: str  # 'user' | 'admin'
+    direction: str  # 'user' | 'admin' | 'system'
     created_at: str
 
 
@@ -182,16 +219,22 @@ async def send_chat_message(
         try:
             username = f"@{user.username}" if user.username else "—"
             name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "—"
-            await bot.send_message(
+            admin_msg = await bot.send_message(
                 chat_id=settings.admin_group_id,
                 text=(
                     f"💬 <b>Чат-повідомлення з магазину</b>\n"
                     f"👤 {name} ({username})\n"
                     f"🆔 <code>{payload.telegram_user_id}</code>\n\n"
-                    f"📝 {payload.content}\n\n"
-                    f"<i>Відповідайте через бота /reply_{payload.telegram_user_id}</i>"
+                    f"📝 {payload.content}"
                 ),
                 parse_mode="HTML",
+            )
+            # Map this message so admin can reply directly to it
+            asyncio.create_task(
+                _save_chat_admin_link(
+                    user_id=user.id,
+                    admin_message_id=admin_msg.message_id,
+                )
             )
         except Exception as exc:
             logger.warning("Failed to forward chat msg to admin", extra={"error": str(exc)})
@@ -202,6 +245,17 @@ async def send_chat_message(
         direction=msg.direction,
         created_at=msg.created_at.isoformat(),
     )
+
+
+async def _save_chat_admin_link(user_id: int, admin_message_id: int) -> None:
+    """Map chat message notification → user_id for reply forwarding."""
+    try:
+        async with SessionLocal() as session:
+            admin_msg_repo = AdminMessageRepository(session)
+            await admin_msg_repo.save(user_id, admin_message_id, "chat")
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Failed to save chat admin link", extra={"error": str(exc)})
 
 
 @router.get("/api/chat", response_model=list[ChatMessageOut])
@@ -228,7 +282,12 @@ async def get_chat_history(
         messages = await chat_repo.get_history(user.id)
 
     return [
-        ChatMessageOut(id=m.id, content=m.content, direction=m.direction, created_at=m.created_at.isoformat())
+        ChatMessageOut(
+            id=m.id,
+            content=m.content,
+            direction=m.direction,
+            created_at=m.created_at.isoformat(),
+        )
         for m in messages
     ]
 

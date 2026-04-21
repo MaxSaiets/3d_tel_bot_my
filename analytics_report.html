@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Аналіз продажів 2026 — Ринок Яроцька</title>
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      padding: 28px 20px 52px;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .page-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+    .page-header p {
+      font-size: 0.9rem;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* ── main card ── */
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      max-width: 900px;
+      margin: 0 auto 24px;
+      padding: 28px 20px 20px;
+    }
+    .card-title {
+      text-align: center;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 8px;
+    }
+
+    #sunburst {
+      width: 100%;
+      height: 600px;
+    }
+
+    /* ── how to read ── */
+    .ring-guide {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .rg-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.8rem;
+      color: #666;
+    }
+    .rg-ring {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    /* ── stats grid ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto 24px;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      padding: 20px 18px;
+      border-top: 4px solid #ccc;
+    }
+    .stat-card.yarots  { border-top-color: #E07B67; }
+    .stat-card.zaych   { border-top-color: #5BAD8C; }
+    .stat-card.strilec { border-top-color: #5589CC; }
+
+    .sc-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .sc-share {
+      font-size: 0.75rem;
+      color: #aaa;
+      margin-bottom: 12px;
+    }
+    .sc-big {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .sc-unit {
+      font-size: 0.73rem;
+      color: #aaa;
+      margin-bottom: 14px;
+    }
+    .sc-rows {
+      border-top: 1px solid #f0f0f0;
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .sc-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.76rem;
+    }
+    .sc-row-label { color: #777; }
+    .sc-row-val {
+      font-weight: 600;
+      color: #333;
+    }
+    .sc-row-pct {
+      font-size: 0.68rem;
+      color: #bbb;
+      margin-left: 4px;
+    }
+
+    /* ── legend ── */
+    .freq-legend {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px 20px;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+    .fl-title {
+      width: 100%;
+      text-align: center;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #888;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .fl-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.8rem;
+      color: #555;
+    }
+    .fl-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 600px) {
+      .stats-grid { grid-template-columns: 1fr; }
+      #sunburst { height: 420px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <h1>Аналіз активності клієнтів</h1>
+    <p>01.01.2026 — 01.04.2026 · Дані з файлу "продажі кількість 2026 загальна.xlsx"</p>
+  </div>
+
+  <!-- Sunburst card -->
+  <div class="card">
+    <p class="card-title">
+      Зовнішнє кільце — частка кожного менеджера від загального числа клієнтів &nbsp;|&nbsp;
+      Внутрішнє кільце — розподіл клієнтів за кількістю покупок
+    </p>
+    <div id="sunburst"></div>
+
+    <div class="ring-guide">
+      <div class="rg-item">
+        <div class="rg-ring" style="background:conic-gradient(#E07B67 0% 62%,#5BAD8C 62% 82%,#5589CC 82% 100%)"></div>
+        <div>
+          <strong>Зовнішнє кільце</strong><br>
+          Частка менеджера від загальних 633 клієнтів
+        </div>
+      </div>
+      <div class="rg-item">
+        <div class="rg-ring" style="background:conic-gradient(#F5C4BB 0% 29%,#EDA99A 29% 65%,#E07B67 65% 87%,#D46D5A 87% 95%,#BA4E3B 95% 100%)"></div>
+        <div>
+          <strong>Внутрішнє кільце</strong><br>
+          Скільки разів кожен клієнт менеджера купував
+        </div>
+      </div>
+      <div class="rg-item">
+        <div class="rg-ring" style="background:#e0e0e0; color:#999; font-size:1rem;">%</div>
+        <div>
+          <strong>Відсотки у підказці</strong><br>
+          Наведіть мишею для детальної інформації
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="stats-grid">
+
+    <div class="stat-card yarots">
+      <div class="sc-name">Яроцька</div>
+      <div class="sc-share">61.8% від усіх клієнтів</div>
+      <div class="sc-big">391</div>
+      <div class="sc-unit">клієнт</div>
+      <div class="sc-rows">
+        <div class="sc-row">
+          <span class="sc-row-label">1 купівля</span>
+          <span><span class="sc-row-val">115</span><span class="sc-row-pct">(29.4%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">2–3 купівлі</span>
+          <span><span class="sc-row-val">140</span><span class="sc-row-pct">(35.8%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">4–6 купівель</span>
+          <span><span class="sc-row-val">86</span><span class="sc-row-pct">(22.0%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">7–10 купівель</span>
+          <span><span class="sc-row-val">31</span><span class="sc-row-pct">(7.9%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">11+ купівель</span>
+          <span><span class="sc-row-val">19</span><span class="sc-row-pct">(4.9%)</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-card zaych">
+      <div class="sc-name">Зайченко</div>
+      <div class="sc-share">20.4% від усіх клієнтів</div>
+      <div class="sc-big">129</div>
+      <div class="sc-unit">клієнт</div>
+      <div class="sc-rows">
+        <div class="sc-row">
+          <span class="sc-row-label">1 купівля</span>
+          <span><span class="sc-row-val">55</span><span class="sc-row-pct">(42.6%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">2–3 купівлі</span>
+          <span><span class="sc-row-val">41</span><span class="sc-row-pct">(31.8%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">4–6 купівель</span>
+          <span><span class="sc-row-val">21</span><span class="sc-row-pct">(16.3%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">7–10 купівель</span>
+          <span><span class="sc-row-val">8</span><span class="sc-row-pct">(6.2%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">11+ купівель</span>
+          <span><span class="sc-row-val">4</span><span class="sc-row-pct">(3.1%)</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-card strilec">
+      <div class="sc-name">Стрілець</div>
+      <div class="sc-share">17.9% від усіх клієнтів</div>
+      <div class="sc-big">113</div>
+      <div class="sc-unit">клієнт</div>
+      <div class="sc-rows">
+        <div class="sc-row">
+          <span class="sc-row-label">1 купівля</span>
+          <span><span class="sc-row-val">53</span><span class="sc-row-pct">(46.9%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">2–3 купівлі</span>
+          <span><span class="sc-row-val">26</span><span class="sc-row-pct">(23.0%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">4–6 купівель</span>
+          <span><span class="sc-row-val">22</span><span class="sc-row-pct">(19.5%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">7–10 купівель</span>
+          <span><span class="sc-row-val">6</span><span class="sc-row-pct">(5.3%)</span></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-row-label">11+ купівель</span>
+          <span><span class="sc-row-val">6</span><span class="sc-row-pct">(5.3%)</span></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Frequency color legend -->
+  <div class="freq-legend">
+    <div class="fl-title">Кольори рівнів активності клієнтів (внутрішнє кільце)</div>
+    <div class="fl-item"><div class="fl-dot" style="background:#F5C4BB"></div>1 купівля — разові клієнти</div>
+    <div class="fl-item"><div class="fl-dot" style="background:#E8A898"></div>2–3 купівлі — рідко повторні</div>
+    <div class="fl-item"><div class="fl-dot" style="background:#D47860"></div>4–6 купівель — помірно активні</div>
+    <div class="fl-item"><div class="fl-dot" style="background:#B85A40"></div>7–10 купівель — активні</div>
+    <div class="fl-item"><div class="fl-dot" style="background:#8C3020"></div>11+ купівель — постійні клієнти</div>
+  </div>
+
+  <script>
+    // ── Raw data ────────────────────────────────────────────────────────────
+    // One row = one client, value = number of times they bought
+    // Grouped into activity tiers
+
+    const TOTAL = 633;
+
+    // Manager totals
+    const mgr = {
+      yarots:  { name: 'Яроцька',  total: 391 },
+      zaych:   { name: 'Зайченко', total: 129 },
+      strilec: { name: 'Стрілець', total: 113 },
+    };
+
+    // Frequency distribution per manager
+    // Groups: 1 / 2-3 / 4-6 / 7-10 / 11+
+    const freq = {
+      yarots:  [115, 140, 86, 31, 19],
+      zaych:   [55,   41, 21,  8,  4],
+      strilec: [53,   26, 22,  6,  6],
+    };
+
+    const groupLabels = [
+      '1 купівля',
+      '2–3 купівлі',
+      '4–6 купівель',
+      '7–10 купівель',
+      '11+ купівель',
+    ];
+
+    // ── Manager color palettes ──────────────────────────────────────────────
+    // Яроцька  → coral/salmon family
+    const yarColors  = ['#F9DDD9','#F0B8AE','#E07B67','#C4573E','#A03520'];
+    // Зайченко → teal/green family
+    const zaychColors = ['#C8EAD9','#96D2B4','#5BAD8C','#3C9070','#246A52'];
+    // Стрілець → blue family
+    const strilColors = ['#C8DCF5','#96B8E8','#5589CC','#3568B0','#1E4B90'];
+
+    // ── Build sunburst data ─────────────────────────────────────────────────
+    const ids     = [];
+    const labels  = [];
+    const parents = [];
+    const values  = [];
+    const colors  = [];
+    const customdata = [];   // [total_of_parent, pct_of_total]
+
+    function pct(n, d) { return ((n / d) * 100).toFixed(1); }
+
+    // Root
+    ids.push('root');
+    labels.push(`Усі менеджери<br>${TOTAL} клієнтів`);
+    parents.push('');
+    values.push(TOTAL);
+    colors.push('#EFEFEF');
+    customdata.push([TOTAL, 100]);
+
+    // Each manager
+    const mgrKeys = ['yarots','zaych','strilec'];
+    const mgrColors = {
+      yarots:  '#E07B67',
+      zaych:   '#5BAD8C',
+      strilec: '#5589CC',
+    };
+    const mgrFreqColors = {
+      yarots:  yarColors,
+      zaych:   zaychColors,
+      strilec: strilColors,
+    };
+
+    mgrKeys.forEach(key => {
+      const m = mgr[key];
+      const mPct = pct(m.total, TOTAL);
+
+      ids.push(key);
+      labels.push(`${m.name}<br>${m.total} кл. (${mPct}% від усіх)`);
+      parents.push('root');
+      values.push(m.total);
+      colors.push(mgrColors[key]);
+      customdata.push([TOTAL, mPct]);
+
+      freq[key].forEach((n, i) => {
+        const segId = `${key}_${i}`;
+        const pctOfMgr  = pct(n, m.total);
+        const pctOfAll  = pct(n, TOTAL);
+
+        ids.push(segId);
+        labels.push(`${groupLabels[i]}<br>${n} осіб`);
+        parents.push(key);
+        values.push(n);
+        colors.push(mgrFreqColors[key][i]);
+        customdata.push([m.total, pctOfMgr, pctOfAll]);
+      });
+    });
+
+    // ── Plotly layout ───────────────────────────────────────────────────────
+    const trace = {
+      type: 'sunburst',
+      ids,
+      labels,
+      parents,
+      values,
+      branchvalues: 'total',
+      marker: { colors, line: { color: '#fff', width: 2 } },
+      customdata,
+      hovertemplate: `
+        <b>%{label}</b><br>
+        Клієнтів: <b>%{value}</b><br>
+        % від батьківського сегменту: <b>%{percentParent:.1%}</b><br>
+        % від загального: <b>%{percentRoot:.1%}</b>
+        <extra></extra>
+      `,
+      textinfo: 'label',
+      insidetextorientation: 'radial',
+      maxdepth: 3,
+    };
+
+    const layout = {
+      margin: { t: 20, b: 20, l: 20, r: 20 },
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor:  'rgba(0,0,0,0)',
+      sunburstcolorway: Object.values(mgrColors),
+      font: { family: "'Segoe UI', system-ui, sans-serif", size: 12 },
+    };
+
+    Plotly.newPlot('sunburst', [trace], layout, {
+      responsive: true,
+      displayModeBar: false,
+    });
+  </script>
+</body>
+</html>

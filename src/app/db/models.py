@@ -21,15 +21,19 @@ from app.db.base import Base, TimestampMixin
 
 
 class OrderStatus(str, enum.Enum):
-    pending = "pending"
+    pending   = "pending"
     submitted = "submitted"
-    failed = "failed"
+    confirmed = "confirmed"   # admin confirmed order
+    shipped   = "shipped"     # dispatched with TTN
+    delivered = "delivered"   # delivered to customer
+    cancelled = "cancelled"   # order cancelled
+    failed    = "failed"
 
 
 class CrmEventStatus(str, enum.Enum):
     pending = "pending"
-    sent = "sent"
-    failed = "failed"
+    sent    = "sent"
+    failed  = "failed"
 
 
 class SupportSessionStatus(str, enum.Enum):
@@ -40,23 +44,23 @@ class SupportSessionStatus(str, enum.Enum):
 class User(TimestampMixin, Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]              = mapped_column(Integer, primary_key=True)
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_name: Mapped[str | None]  = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None]      = mapped_column(String(32), nullable=True)
 
-    attributions: Mapped[list["StartAttribution"]] = relationship(back_populates="user")
-    orders: Mapped[list["Order"]] = relationship(back_populates="user")
+    attributions:    Mapped[list["StartAttribution"]] = relationship(back_populates="user")
+    orders:          Mapped[list["Order"]]            = relationship(back_populates="user")
     support_sessions: Mapped[list["SupportSession"]] = relationship(back_populates="user")
 
 
 class StartAttribution(Base):
     __tablename__ = "start_attributions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    id: Mapped[int]         = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int]    = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     source_code: Mapped[str] = mapped_column(String(128), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -66,17 +70,18 @@ class StartAttribution(Base):
 class Order(TimestampMixin, Base):
     __tablename__ = "orders"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]          = mapped_column(Integer, primary_key=True)
     order_uuid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), default=uuid.uuid4, unique=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int]     = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     source_code: Mapped[str | None] = mapped_column(String(128), index=True)
-    customer_name: Mapped[str] = mapped_column(String(255))
+    customer_name: Mapped[str]  = mapped_column(String(255))
     customer_phone: Mapped[str] = mapped_column(String(64))
-    delivery_info: Mapped[str] = mapped_column(Text)
+    delivery_info: Mapped[str]  = mapped_column(Text)
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2))
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending, index=True)
+    ttn: Mapped[str | None]     = mapped_column(String(64), nullable=True)  # Nova Poshta tracking number
 
-    user: Mapped[User] = relationship(back_populates="orders")
+    user: Mapped[User]               = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     crm_events: Mapped[list["CrmEvent"]] = relationship(back_populates="order")
 
@@ -84,11 +89,11 @@ class Order(TimestampMixin, Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]       = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
-    sku: Mapped[str] = mapped_column(String(128))
-    qty: Mapped[int] = mapped_column(Integer)
-    price: Mapped[float] = mapped_column(Numeric(10, 2))
+    sku: Mapped[str]      = mapped_column(String(128))
+    qty: Mapped[int]      = mapped_column(Integer)
+    price: Mapped[float]  = mapped_column(Numeric(10, 2))
 
     order: Mapped[Order] = relationship(back_populates="items")
 
@@ -96,12 +101,12 @@ class OrderItem(Base):
 class SupportSession(TimestampMixin, Base):
     __tablename__ = "support_sessions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]      = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status: Mapped[SupportSessionStatus] = mapped_column(
         Enum(SupportSessionStatus), default=SupportSessionStatus.active, index=True
     )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="support_sessions")
@@ -111,32 +116,45 @@ class SupportMessageLink(Base):
     __tablename__ = "support_message_links"
     __table_args__ = (UniqueConstraint("admin_message_id", name="uq_support_message_admin_msg"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    id: Mapped[int]              = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int]         = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     user_message_id: Mapped[int] = mapped_column(Integer)
     admin_message_id: Mapped[int] = mapped_column(Integer, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]  = mapped_column(DateTime(timezone=True))
+
+
+class AdminMessageLink(Base):
+    """Maps admin-group message IDs to users.
+    Used so admin can reply to order notifications or bot-generated messages
+    and the reply is automatically forwarded to the correct user.
+    """
+    __tablename__ = "admin_message_links"
+
+    id: Mapped[int]               = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int]          = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    admin_message_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    link_type: Mapped[str]        = mapped_column(String(20), default="order")  # 'order' | 'reply' | 'prompt'
+    created_at: Mapped[datetime]  = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class CrmEvent(TimestampMixin, Base):
     __tablename__ = "crm_events"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]       = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
     payload: Mapped[dict] = mapped_column(JSONB)
     status: Mapped[CrmEventStatus] = mapped_column(Enum(CrmEventStatus), default=CrmEventStatus.pending, index=True)
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int]          = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     order: Mapped[Order] = relationship(back_populates="crm_events")
 
 
 class ChatMessage(Base):
-    """In-app chat messages between users and admins."""
-
+    """In-app chat messages between users and admins (WebApp chat widget)."""
     __tablename__ = "chat_messages"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int]      = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(String(10), default="user")  # 'user' | 'admin'
